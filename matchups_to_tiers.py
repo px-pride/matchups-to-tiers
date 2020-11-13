@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.optimize import linprog
+from scipy.cluster.vq import vq, kmeans, whiten
 from pprint import pprint
 
 # import matchup chart from csv file
@@ -13,6 +14,12 @@ with open("dumb_mu_chart.csv", "r", encoding="utf8") as f:
         matchups = mu_row.split(',')[1:]
         for j in range(len(matchups)):
             mu_chart[i][j] = float(matchups[j])
+            if j < i:
+                if mu_chart[i][j] + mu_chart[j][i] != 0.0:
+                    print(i)
+                    print(j)
+                    print(mu_chart[i][j])
+                    print(mu_chart[j][i])
 
 # set up linear program
 midpoint = 0
@@ -21,7 +28,7 @@ A_ub = mu_chart
 b_ub = midpoint * np.ones((len(char_names),))
 A_eq = np.ones((1, len(char_names)))
 b_eq = np.ones((1,))
-result = linprog(obj_coeffs, A_ub, b_ub, A_eq, b_eq)
+result = linprog(obj_coeffs, A_ub, b_ub, A_eq, b_eq, method="revised simplex")
 
 # compute the nash equilibrium
 nash_eq = result.x
@@ -31,19 +38,38 @@ nash_eq = result.x
     ## sorted by nash value
 ## for characters with zero representation, sort by
     ## performance vs nash
-char_scores = dict()
+
+tier_list_mode = "brf" #"recursive"
+
+s_tier = []
+a_tier = []
 for i in range(len(char_names)):
     k = char_names[i]
-    #print(char_scores)
-    #print(result.slack)
     if nash_eq[i] < 1e-6:
-        char_scores[k] = midpoint - result.slack[i]
+        a_tier.append(('A', k, round(midpoint - result.slack[i], 2)))
     else:
-        char_scores[k] = nash_eq[i] + 100.0
-sorted_char_list = reversed(sorted(
-    char_scores, key=lambda k:char_scores[k]))
-tier_list = [('S' if char_scores[char] >= 1.0 else 'A', char, round(char_scores[char], 2)) for char in sorted_char_list]
+        s_tier.append(('S', k, round(nash_eq[i], 2)))
+
+s_tier = list(reversed(sorted(s_tier, key=lambda x: x[2])))
+if tier_list_mode == "brf":
+    a_values = [x[2] for x in a_tier]
+    num_centroids = 3
+    clusters = list(kmeans(a_values, num_centroids))[0]
+    clusters = list(reversed(sorted(clusters)))
+    non_s_tiers = [[] for _ in range(len(clusters))]
+    for i in range(len(a_values)):
+        argmin = min(enumerate(clusters), key = lambda x: abs(a_values[i] - x[1]))[0]
+        updated_tuple = (chr(ord('A') + argmin), a_tier[i][1], a_tier[i][2])
+        non_s_tiers[argmin].append(updated_tuple)
+
+for i in range(len(non_s_tiers)):
+    non_s_tiers[i] = list(reversed(sorted(non_s_tiers[i], key=lambda x:x[2])))
 
 # print tier list
-pprint(tier_list)
+print()
+pprint(s_tier)
+for non_s_tier in non_s_tiers:
+    print()
+    pprint(non_s_tier)
+print()
 
